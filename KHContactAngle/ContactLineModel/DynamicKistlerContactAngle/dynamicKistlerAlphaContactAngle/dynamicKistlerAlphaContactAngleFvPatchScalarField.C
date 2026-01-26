@@ -30,6 +30,9 @@ License
 #include "fvPatchFields.H"
 #include "volMesh.H"
 #include "Time.H" // Required for this->db() to return Time object, which is the objectRegistry
+#include "interfaceProperties.H"
+#include "twoPhaseMixture.H" // Often needed to find phase properties
+#include "IOdictionary.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -44,7 +47,7 @@ const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToDeg =
 const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToRad =
     constant::mathematical::pi/180.0;
 
-const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 90.0;
+const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 120.0;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -167,18 +170,18 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     vectorField nf = patch().nf();
 
     // Calculate the component of the velocity parallel to the wall
-    vectorField Uwall = Up.patchInternalField() - Up;
+    vectorField Uwall = Up.patchInternalField(); //- Up; Up.patchInternalField() is the U in the cells adjacent to the bounday.
     Uwall -= (nf & Uwall)*nf;
 
     // Find the direction of the interface parallel to the wall
     vectorField nWall = nHat - (nf & nHat)*nf; // can this be used to define the receding or advancing contact angle?????????????????????????????????
 
     // Normalise nWall
-    nWall /= (mag(nWall) + SMALL); // SMALL = 1.0e-6;
+    nWall /= (mag(nWall) + SMALL); // SMALL = 1.0e-6; Points into the drop from the interface
 
-    // Calculate Uwall resolved normal to the interface parallel to
+    // Calculate Uwall resolved normal to the interface perpendicular to
     // the wall
-    scalarField uwall = nWall & Uwall; // & is the inner product.........................
+    scalarField uwall = nWall & Uwall; // & is the inner product......................... faces into the droplet when receding and outwards when advancing
 
     //eb - Calculate local Capillary number
     scalarField Ca = mup*mag(uwall)/sigmap;
@@ -211,59 +214,59 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     //     adhesion
 
 //Original
+   // scalarField thetaDp(patch().size(), convertToRad*theta0);
+  //  forAll(uwall, pfacei)
+//    {
+//
+        //if(uwall[pfacei] < 0.0)
+        //{
+      //      thetaDp[pfacei] = HoffmanFunction(  mag(Ca[pfacei])
+    //                                            + InvHoffFuncThetaAroot);
+  //      }
+//	else if (uwall[pfacei] >  0.0)
+      //  {
+    //        thetaDp[pfacei] = HoffmanFunction(   mag(Ca[pfacei])
+  //                                              + InvHoffFuncThetaRroot);
+//		//attempted improvement
+    //        //scalar thetaGasDyn = HoffmanFunction(Ca[pfacei] + InvHoffFuncThetaRroot);
+  //          //thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
+//
+//        }
+//   }
+//
+//    return convertToDeg*thetaDp;
+//}
+
+//improved
+const scalar uwallTol = 1e-12; // or velocity-based
+//
     scalarField thetaDp(patch().size(), convertToRad*theta0);
     forAll(uwall, pfacei)
     {
 
-        if(uwall[pfacei] < 0.0)
+        if (uwall[pfacei] < -uwallTol)
         {
+        // advancing
             thetaDp[pfacei] = HoffmanFunction(  mag(Ca[pfacei])
-                                                + InvHoffFuncThetaAroot);
+                                                + 0.1077076);
         }
-	else if (uwall[pfacei] >  0.0)
+        else if (uwall[pfacei] > uwallTol)
         {
-            thetaDp[pfacei] = HoffmanFunction(   mag(Ca[pfacei])
-                                                + InvHoffFuncThetaRroot);
-		//attempted improvement
-            //scalar thetaGasDyn = HoffmanFunction(Ca[pfacei] + InvHoffFuncThetaRroot);
-            //thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
-
+        // receding
+            // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
+            // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
+            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + 0.01797121);
+//            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
+        }
+        else
+          {
+        // pinned / equilibrium
+            thetaDp[pfacei] = convertToRad*theta0;
         }
    }
 
     return convertToDeg*thetaDp;
 }
-
-//improved
-//const scalar uwallTol = 1e-10; // or velocity-based
-//
-//    scalarField thetaDp(patch().size(), convertToRad*theta0);
-//    forAll(uwall, pfacei)
-//    {
-//
-//        if (uwall[pfacei] < -uwallTol)
-//        {
-        // advancing
-//            thetaDp[pfacei] = HoffmanFunction(   Ca[pfacei]
-//                                                + InvHoffFuncThetaAroot);
-//        }
-//        else if (uwall[pfacei] > uwallTol)
-//        {
-        // receding
-            // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
-            // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
-//            scalar thetaGasDyn = HoffmanFunction(Ca[pfacei] + InvHoffFuncThetaRroot);
-//            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
-//        }
-//        else
-//          {
-        // pinned / equilibrium
-//            thetaDp[pfacei] = convertToRad*theta0;
-//        }
-//   }
-
-//    return convertToDeg*thetaDp;
-//}
 
 //scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::HoffmanFunction
 //(

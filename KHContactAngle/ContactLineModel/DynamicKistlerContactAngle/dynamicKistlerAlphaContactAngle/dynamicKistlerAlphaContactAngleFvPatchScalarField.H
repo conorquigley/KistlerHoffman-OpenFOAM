@@ -107,10 +107,10 @@ public:
             // Use absolute value for fHI to prevent NaNs with power 0.99
             	scalar term1 = pow(fHI, 0.706);
             	scalar term2 = pow((1.0 + 1.31 * pow(mag(fHI), 0.99)), 0.706);
-            
+
             	scalar cosVal = cos(thetaE_);
             	scalar atanhArg = (1.0 - cosVal) / 2.0;
-            
+
             // Safety clamp for atanh (must be < 1.0)
             	if (atanhArg >= 1.0 - SMALL) atanhArg = 1.0 - SMALL;
 
