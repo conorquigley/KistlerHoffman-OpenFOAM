@@ -60,8 +60,8 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
-    thetaA_(0.0),
-    thetaR_(0.0),
+    shiftA(0.0),
+    shiftR(0.0),
     muName_("undefined"),
     sigmaName_("undefined")
 {}
@@ -76,8 +76,8 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, p, iF, mapper),
-    thetaA_(acpsf.thetaA_),
-    thetaR_(acpsf.thetaR_),
+    shiftA(acpsf.shiftA),
+    shiftR(acpsf.shiftR),
     muName_(acpsf.muName_),
     sigmaName_(acpsf.sigmaName_)
 {}
@@ -92,8 +92,8 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
-    thetaA_(readScalar(dict.lookup("thetaA"))),
-    thetaR_(readScalar(dict.lookup("thetaR"))),
+    shiftA(readScalar(dict.lookup("shiftA"))),
+    shiftR(readScalar(dict.lookup("shiftR"))),
     muName_(dict.lookup("muEffKistler")),
     sigmaName_(dict.lookup("sigmaKistler"))
 {
@@ -108,8 +108,8 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf),
-    thetaA_(acpsf.thetaA_),
-    thetaR_(acpsf.thetaR_),
+    shiftA(acpsf.shiftA),
+    shiftR(acpsf.shiftR),
     muName_(acpsf.muName_),
     sigmaName_(acpsf.sigmaName_)
 {}
@@ -123,8 +123,8 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, iF),
-    thetaA_(acpsf.thetaA_),
-    thetaR_(acpsf.thetaR_),
+    shiftA(acpsf.shiftA),
+    shiftR(acpsf.shiftR),
     muName_(acpsf.muName_),
     sigmaName_(acpsf.sigmaName_)
 {}
@@ -187,56 +187,11 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     //eb - Calculate local Capillary number
     scalarField Ca = mup*mag(uwall)/sigmap;
 
-    //eb - Instantiate function object InverseHoffmanFunction for thetaA and thetaR
-    dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
-    InvHoffFuncThetaA
-    (
-        convertToRad*thetaA_
-    );
-
-    dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
-    InvHoffFuncThetaR
-    (
-        convertToRad*(thetaR_)//calculate the receding contact angle
-    );
-
-    //eb - Calculate InverseHoffmanFunction for thetaA and thetaR using
-    // RiddersRoot
-    RiddersRoot RRInvHoffFuncThetaA(InvHoffFuncThetaA, 1.e-10);
-    scalar InvHoffFuncThetaAroot = RRInvHoffFuncThetaA.root(0,65);
-
-    RiddersRoot RRInvHoffFuncThetaR(InvHoffFuncThetaR, 1.e-10);
-    scalar InvHoffFuncThetaRroot = RRInvHoffFuncThetaR.root(0,65);
-
     //eb - Calculate and return the value of contact angle on patch faces,
     //     a general approach: the product of Uwall and nWall is negative
     //     for advancing and positiv for receding motion.
     //     thetaDp is initialized to 90 degrees corresponding to no wall
     //     adhesion
-
-//Original
-   // scalarField thetaDp(patch().size(), convertToRad*theta0);
-  //  forAll(uwall, pfacei)
-//    {
-//
-        //if(uwall[pfacei] < 0.0)
-        //{
-      //      thetaDp[pfacei] = HoffmanFunction(  mag(Ca[pfacei])
-    //                                            + InvHoffFuncThetaAroot);
-  //      }
-//	else if (uwall[pfacei] >  0.0)
-      //  {
-    //        thetaDp[pfacei] = HoffmanFunction(   mag(Ca[pfacei])
-  //                                              + InvHoffFuncThetaRroot);
-//		//attempted improvement
-    //        //scalar thetaGasDyn = HoffmanFunction(Ca[pfacei] + InvHoffFuncThetaRroot);
-  //          //thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
-//
-//        }
-//   }
-//
-//    return convertToDeg*thetaDp;
-//}
 
 //improved
 const scalar uwallTol = 1e-4; // or velocity-based
@@ -249,14 +204,14 @@ const scalar uwallTol = 1e-4; // or velocity-based
         {
         // advancing
             thetaDp[pfacei] = HoffmanFunction(  mag(Ca[pfacei])
-                                                + 0.1077076);
+                                                + shiftA);
         }
         else if (uwall[pfacei] > uwallTol)
         {
         // receding
             // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
             // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
-            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + 0.01797121);
+            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + shiftR);
 //            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
         }
         else
@@ -299,14 +254,6 @@ const scalar uwallTol = 1e-4; // or velocity-based
     return convertToDeg*thetaDp;
 }
 
-//scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::HoffmanFunction
-//(
-  //  const scalar& x
-//) const
-//{
-//    return acos(1 - 2*tanh(5.16*pow(x/(1+1.31*pow(mag(x),0.99)),0.706)));
-//}
-
 scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::HoffmanFunction
 (
     const scalar& x
@@ -339,8 +286,8 @@ void dynamicKistlerAlphaContactAngleFvPatchScalarField::write(Ostream& os) const
     dynamicAlphaContactAngleFvPatchScalarField::write(os);
 
     // Write scalar members explicitly
-    os.writeKeyword("thetaA") << thetaA_ << token::END_STATEMENT << nl;
-    os.writeKeyword("thetaR") << thetaR_ << token::END_STATEMENT << nl;
+    os.writeKeyword("shiftA") << shiftA << token::END_STATEMENT << nl;
+    os.writeKeyword("shiftR") << shiftR << token::END_STATEMENT << nl;
 
     // Write the dictionary keys for the referenced fields
     os.writeKeyword("muEffKistler") << muName_ << token::END_STATEMENT << nl;
