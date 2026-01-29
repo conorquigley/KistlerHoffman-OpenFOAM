@@ -33,6 +33,7 @@ License
 #include "interfaceProperties.H"
 #include "twoPhaseMixture.H" // Often needed to find phase properties
 #include "IOdictionary.H"
+#include "OFstream.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -47,7 +48,7 @@ const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToDeg =
 const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToRad =
     constant::mathematical::pi/180.0;
 
-const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 120.0;
+const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 110.0;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -238,7 +239,7 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
 //}
 
 //improved
-const scalar uwallTol = 1e-12; // or velocity-based
+const scalar uwallTol = 1e-4; // or velocity-based
 //
     scalarField thetaDp(patch().size(), convertToRad*theta0);
     forAll(uwall, pfacei)
@@ -264,6 +265,36 @@ const scalar uwallTol = 1e-12; // or velocity-based
             thetaDp[pfacei] = convertToRad*theta0;
         }
    }
+
+    // --  DATA EXPORT FOR PYTHON ---.
+
+	const scalarField& alphaWall = *this;
+
+    if (this->db().time().writeTime())
+    {
+        // Define path: postProcessing/contactAngleData/<patchName>_time.csv
+        fileName outputDir = this->db().time().path()/"postProcessing"/"contactAngleData";
+        mkDir(outputDir);
+
+        fileName logName = outputDir/(this->patch().name() + "_" + this->db().time().timeName() + ".csv");
+
+	// Declare the pointer locally
+        autoPtr<OFstream> OF_logFilePtr;
+        OF_logFilePtr.reset(new OFstream(logName));
+
+        // Write CSV Header
+        *OF_logFilePtr << "faceID,uwall,Ca,thetaDeg,alpha" << endl;
+
+        forAll(uwall, facei)
+        {
+            *OF_logFilePtr << facei << ","
+                           << uwall[facei] << ","
+                           << Ca[facei] << ","
+                           << (thetaDp[facei] * convertToDeg) << ","
+                           << alphaWall[facei] << endl;
+        }
+    }
+    // --- END DATA EXPORT ---
 
     return convertToDeg*thetaDp;
 }

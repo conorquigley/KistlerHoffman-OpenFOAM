@@ -614,5 +614,7 @@ $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/volFields.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/calculatedFvPatchFields.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/volFieldsI.H \
 $(WM_PROJECT_DIR)/src/transportModels/twoPhaseMixture/lnInclude/twoPhaseMixture.H \
+$(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/OFstream.H \
+$(WM_PROJECT_DIR)/src/OpenFOAM/lnInclude/fstreamPointer.H \
 
 #END
