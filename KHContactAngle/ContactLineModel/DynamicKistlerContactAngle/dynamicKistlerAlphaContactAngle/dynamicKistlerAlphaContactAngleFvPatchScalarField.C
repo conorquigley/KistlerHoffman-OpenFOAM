@@ -48,7 +48,7 @@ const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToDeg =
 const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToRad =
     constant::mathematical::pi/180.0;
 
-const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 110.0;
+const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 90.0;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -60,9 +60,9 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
-    shiftA(0.0),
-    shiftR(0.0),
-    muName_("undefined"),
+    thetaA_(0.0),
+    thetaR_(0.0),
+    muWater_(0.0),
     sigmaName_("undefined")
 {}
 
@@ -76,9 +76,9 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, p, iF, mapper),
-    shiftA(acpsf.shiftA),
-    shiftR(acpsf.shiftR),
-    muName_(acpsf.muName_),
+    thetaA_(acpsf.thetaA_),
+    thetaR_(acpsf.thetaR_),
+    muWater_(acpsf.muWater_),
     sigmaName_(acpsf.sigmaName_)
 {}
 
@@ -92,9 +92,9 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
-    shiftA(readScalar(dict.lookup("shiftA"))),
-    shiftR(readScalar(dict.lookup("shiftR"))),
-    muName_(dict.lookup("muEffKistler")),
+    thetaA_(readScalar(dict.lookup("thetaA"))),
+    thetaR_(readScalar(dict.lookup("thetaR"))),
+    muWater_(readScalar(dict.lookup("muWater"))),
     sigmaName_(dict.lookup("sigmaKistler"))
 {
     evaluate();
@@ -108,9 +108,9 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf),
-    shiftA(acpsf.shiftA),
-    shiftR(acpsf.shiftR),
-    muName_(acpsf.muName_),
+    thetaA_(acpsf.thetaA_),
+    thetaR_(acpsf.thetaR_),
+    muWater_(acpsf.muWater_),
     sigmaName_(acpsf.sigmaName_)
 {}
 
@@ -123,14 +123,14 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
 )
 :
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, iF),
-    shiftA(acpsf.shiftA),
-    shiftR(acpsf.shiftR),
-    muName_(acpsf.muName_),
+    thetaA_(acpsf.thetaA_),
+    thetaR_(acpsf.thetaR_),
+    muWater_(acpsf.muWater_),
     sigmaName_(acpsf.sigmaName_)
 {}
 
 
-// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+//----------------------------------------------------------- * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
 (
@@ -140,13 +140,13 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
 {
     //eb - Lookup and return the patchField of dynamic viscosity of mixture
     //     and surface tension
-    if((muName_ != "muEffKistler") || (sigmaName_ != "sigmaKistler"))
+    if((sigmaName_ != "sigmaKistler"))
     {
         FatalErrorIn
         (
             "dynamicKistlerAlphaContactAngleFvPatchScalarField"
-        )   << " muEffKistler or sigma set inconsitently, muEffKistler = "
-            << muName_ << ", sigmaKistler = " << sigmaName_ << '.' << nl
+        )   << " muEffKistler or sigma set inconsitently"
+            << "sigmaKistler = " << sigmaName_ << '.' << nl
             << "     Set both muEffKistler and sigmaKistler according to the "
             << "definition of dynamicKistlerAlphaContactAngle"
             << "\n     on patch " << this->patch().name()
@@ -161,12 +161,10 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
 
     const objectRegistry& obr = this->db();
 
-    const fvPatchField<scalar>& mup =
-        obr.lookupObject<volScalarField>(muName_).boundaryField()[this->patch().index()];
-
     const fvPatchField<scalar>& sigmap =
         obr.lookupObject<volScalarField>(sigmaName_).boundaryField()[this->patch().index()];
-    // * * * END MIGRATION CHANGE * * *
+
+//----------------------------------------------------------------------------------------------------Vectors and Fields ----------------------------------------------------
 
     vectorField nf = patch().nf();
 
@@ -175,17 +173,80 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     Uwall -= (nf & Uwall)*nf;
 
     // Find the direction of the interface parallel to the wall
-    vectorField nWall = nHat - (nf & nHat)*nf; // can this be used to define the receding or advancing contact angle?????????????????????????????????
+    vectorField nWall = nHat - (nf & nHat)*nf;
 
     // Normalise nWall
     nWall /= (mag(nWall) + SMALL); // SMALL = 1.0e-6; Points into the drop from the interface
 
     // Calculate Uwall resolved normal to the interface perpendicular to
-    // the wall
-    scalarField uwall = nWall & Uwall; // & is the inner product......................... faces into the droplet when receding and outwards when advancing
+    // the wall (substrate)
+    scalarField uwall = nWall & Uwall; // & is the inner product...... faces into the droplet when receding and outwards when advancing
 
+//----------------------------------------------------------------------------------------------------Average uwall over the triple-Line------------------------------------
+
+//  Initialize sums
+    scalar sumUwallArea = 0.0;
+    scalar sumArea = 0.0;
+
+    // Access area and alpha fields
+    const scalarField& magSf = patch().magSf();
+    const scalarField& alpha = *this;
+
+    //Define threshold for "interface" (e.g. 0.01 to 0.99)
+    const scalar alphaMin = 0.001;
+    const scalar alphaMax = 0.999;
+
+    //Accumulate weighted sums over local faces
+    forAll(uwall, pfacei)
+    {
+        if (alpha[pfacei] > alphaMin && alpha[pfacei] < alphaMax)
+        {
+            sumUwallArea += uwall[pfacei] * magSf[pfacei];
+            sumArea += magSf[pfacei];
+        }
+    }
+
+    //Parallel reduction (sums values across all processors)
+    reduce(sumUwallArea, sumOp<scalar>());
+    reduce(sumArea, sumOp<scalar>());
+
+    //Calculate average
+    scalar uwallAvg = 0.0;
+    if (sumArea > VSMALL)
+    {
+        uwallAvg = sumUwallArea / sumArea;
+        forAll(uwall, pfacei)
+        {
+            if (alpha[pfacei] > alphaMin && alpha[pfacei] < alphaMax)
+            {
+                uwall[pfacei] = uwallAvg;
+            }
+        }
+    }
+//---------------------------------------------------------------------------------------------------- End uwall Averaging Code
     //eb - Calculate local Capillary number
-    scalarField Ca = mup*mag(uwall)/sigmap;
+    scalarField Ca = muWater_*mag(uwall)/sigmap;
+
+    //eb - Instantiate function object InverseHoffmanFunction for thetaA and thetaR
+    dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
+    InvHoffFuncThetaA
+    (
+        convertToRad*thetaA_
+    );
+
+    dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
+    InvHoffFuncThetaR
+    (
+        convertToRad*(thetaR_)//calculate the receding contact angl
+    );
+
+    //eb - Calculate InverseHoffmanFunction for thetaA and thetaR using
+    // RiddersRoot
+    RiddersRoot RRInvHoffFuncThetaA(InvHoffFuncThetaA, 1.e-10);
+    scalar InvHoffFuncThetaAroot = RRInvHoffFuncThetaA.root(0,65);
+
+    RiddersRoot RRInvHoffFuncThetaR(InvHoffFuncThetaR, 1.e-10);
+    scalar InvHoffFuncThetaRroot = RRInvHoffFuncThetaR.root(0,65);
 
     //eb - Calculate and return the value of contact angle on patch faces,
     //     a general approach: the product of Uwall and nWall is negative
@@ -193,8 +254,9 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     //     thetaDp is initialized to 90 degrees corresponding to no wall
     //     adhesion
 
-//improved
-const scalar uwallTol = 1e-4; // or velocity-based
+//-------------------------------------------------------------------------------Kistler------------------------------------------------------------------------
+const scalar uwallTol = 5e-3; // or velocity-based
+//const scalar uwallTolR = 1e-6; // Receding condition more agressive to deal with spurious currents along the interface
 //
     scalarField thetaDp(patch().size(), convertToRad*theta0);
     forAll(uwall, pfacei)
@@ -204,14 +266,14 @@ const scalar uwallTol = 1e-4; // or velocity-based
         {
         // advancing
             thetaDp[pfacei] = HoffmanFunction(  mag(Ca[pfacei])
-                                                + shiftA);
+                                                + InvHoffFuncThetaAroot);
         }
         else if (uwall[pfacei] > uwallTol)
         {
         // receding
             // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
             // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
-            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + shiftR);
+            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + InvHoffFuncThetaRroot);
 //            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
         }
         else
@@ -221,39 +283,41 @@ const scalar uwallTol = 1e-4; // or velocity-based
         }
    }
 
-    // --  DATA EXPORT FOR PYTHON ---.
+//- -- ------------------------------------------------ DATA EXPORT FOR PYTHON ----------------------
 
-	const scalarField& alphaWall = *this;
-
-    if (this->db().time().writeTime())
-    {
+    //const scalarField& alphaWall = *this;
+//
+  //  if (this->db().time().writeTime())
+//    {
         // Define path: postProcessing/contactAngleData/<patchName>_time.csv
-        fileName outputDir = this->db().time().path()/"postProcessing"/"contactAngleData";
-        mkDir(outputDir);
-
-        fileName logName = outputDir/(this->patch().name() + "_" + this->db().time().timeName() + ".csv");
-
+    //    fileName outputDir = this->db().time().path()/"postProcessing"/"contactAngleData";
+  //      mkDir(outputDir);
+//
+      //  fileName logName = outputDir/(this->patch().name() + "_" + this->db().time().timeName() + ".csv");
+//
 	// Declare the pointer locally
-        autoPtr<OFstream> OF_logFilePtr;
-        OF_logFilePtr.reset(new OFstream(logName));
-
+    //    autoPtr<OFstream> OF_logFilePtr;
+  //      OF_logFilePtr.reset(new OFstream(logName));
+//
         // Write CSV Header
-        *OF_logFilePtr << "faceID,uwall,Ca,thetaDeg,alpha" << endl;
-
-        forAll(uwall, facei)
-        {
-            *OF_logFilePtr << facei << ","
-                           << uwall[facei] << ","
-                           << Ca[facei] << ","
-                           << (thetaDp[facei] * convertToDeg) << ","
-                           << alphaWall[facei] << endl;
-        }
-    }
-    // --- END DATA EXPORT ---
-
+  //      *OF_logFilePtr << "faceID,uwall,Ca,thetaDeg,alpha" << endl;
+//
+    //    forAll(uwall, facei)
+  //      {
+//            *OF_logFilePtr << facei << ","
+            //               << uwall[facei] << ","
+          //                 << Ca[facei] << ","
+        //                   << (thetaDp[facei] * convertToDeg) << ","
+      //                     << alphaWall[facei] << endl;
+    //    }
+  //  }
+//
     return convertToDeg*thetaDp;
 }
+//------------------------------------------------------------------------------------Kistler and Data Export End-------------------------
 
+
+//---------------------------------------------------------------------------------Define Hoffman--------------------------------------
 scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::HoffmanFunction
 (
     const scalar& x
@@ -286,11 +350,11 @@ void dynamicKistlerAlphaContactAngleFvPatchScalarField::write(Ostream& os) const
     dynamicAlphaContactAngleFvPatchScalarField::write(os);
 
     // Write scalar members explicitly
-    os.writeKeyword("shiftA") << shiftA << token::END_STATEMENT << nl;
-    os.writeKeyword("shiftR") << shiftR << token::END_STATEMENT << nl;
+    os.writeKeyword("thetaA") << thetaA_ << token::END_STATEMENT << nl;
+    os.writeKeyword("thetaR") << thetaR_ << token::END_STATEMENT << nl;
 
     // Write the dictionary keys for the referenced fields
-    os.writeKeyword("muEffKistler") << muName_ << token::END_STATEMENT << nl;
+    os.writeKeyword("muWater") << muWater_ << token::END_STATEMENT << nl;
     os.writeKeyword("sigmaKistler") << sigmaName_ << token::END_STATEMENT << nl;
 
     // Write the actual field value stored in this patch field object

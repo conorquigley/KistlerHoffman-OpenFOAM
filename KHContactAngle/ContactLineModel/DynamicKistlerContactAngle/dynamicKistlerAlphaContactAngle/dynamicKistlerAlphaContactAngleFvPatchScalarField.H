@@ -43,6 +43,7 @@ Author
 #include "dynamicAlphaContactAngleFvPatchScalarField.H"
 #include "mathematicalConstants.H"
 #include "surfaceFields.H"
+#include "RiddersRoot.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -60,16 +61,66 @@ class dynamicKistlerAlphaContactAngleFvPatchScalarField
     // Private data
 
         //- Limiting advancing contact angle
-        scalar shiftA;
+        scalar thetaA_;
 
         //- Limiting receeding contact angle
-        scalar shiftR;
+        scalar thetaR_;
 
         //eb Name of the dynamic viscosity field
-        word muName_;
+        scalar muWater_;
 
         //eb Name of the surface tension
         word sigmaName_;
+
+public:
+
+    //eb - Function object class, inverse of the Hoffman function
+    class InverseHoffmanFunction : public FuncBase
+    {
+
+        // Private data
+
+            //- Equilibrium contact angle (advancing or receding), as parameter
+            scalar thetaE_;
+
+    public:
+
+        // Constructors
+
+            //- Construct from data
+            InverseHoffmanFunction(const scalar& thetaE)
+            :
+                thetaE_(thetaE)
+            {}
+
+        // operator()
+            //scalar operator()(scalar fHI) const
+            //{
+                //return
+                 // pow(fHI,0.706)
+               // -   pow((1+1.31*pow(mag(fHI),0.99)),0.706)
+             //      *(1.0/5.16)*atanh((1-cos(thetaE_))/2);
+           // }
+	// operator()
+	    scalar operator()(scalar fHI) const
+        {
+            // Use absolute value for fHI to prevent NaNs with power 0.99
+            	scalar term1 = pow(fHI, 0.706);
+            	scalar term2 = pow((1.0 + 1.31 * pow(mag(fHI), 0.99)), 0.706);
+
+            	scalar cosVal = cos(thetaE_);
+            	scalar atanhArg = (1.0 - cosVal) / 2.0;
+
+            // Safety clamp for atanh (must be < 1.0)
+            	if (atanhArg >= 1.0 - SMALL) atanhArg = 1.0 - SMALL;
+
+           	 scalar K = (1.0 / 5.16) * atanh(atanhArg);
+
+            return term1 - term2 * K;
+        }
+
+    };
+
 
 
 public:
