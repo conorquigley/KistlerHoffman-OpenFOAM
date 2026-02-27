@@ -237,7 +237,7 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
     InvHoffFuncThetaR
     (
-        convertToRad*(thetaR_)//calculate the receding contact angl
+        convertToRad*(180-thetaR_)//calculate the receding contact angl
     );
 
     //eb - Calculate InverseHoffmanFunction for thetaA and thetaR using
@@ -273,7 +273,7 @@ const scalar uwallTol = 5e-3; // or velocity-based
         // receding
             // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
             // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
-            thetaDp[pfacei] = HoffmanFunction( mag(Ca[pfacei]) + InvHoffFuncThetaRroot);
+            thetaDp[pfacei] =constant::mathematical::pi - HoffmanFunction( mag(Ca[pfacei]) + InvHoffFuncThetaRroot);
 //            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
         }
         else
