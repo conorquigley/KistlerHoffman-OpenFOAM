@@ -48,7 +48,7 @@ const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToDeg =
 const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToRad =
     constant::mathematical::pi/180.0;
 
-const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 90.0;
+const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 120.0;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -243,10 +243,10 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     //eb - Calculate InverseHoffmanFunction for thetaA and thetaR using
     // RiddersRoot
     RiddersRoot RRInvHoffFuncThetaA(InvHoffFuncThetaA, 1.e-10);
-    scalar InvHoffFuncThetaAroot = RRInvHoffFuncThetaA.root(0,65);
+    scalar InvHoffFuncThetaAroot = RRInvHoffFuncThetaA.root(0,150);
 
     RiddersRoot RRInvHoffFuncThetaR(InvHoffFuncThetaR, 1.e-10);
-    scalar InvHoffFuncThetaRroot = RRInvHoffFuncThetaR.root(0,65);
+    scalar InvHoffFuncThetaRroot = RRInvHoffFuncThetaR.root(0,150);
 
     //eb - Calculate and return the value of contact angle on patch faces,
     //     a general approach: the product of Uwall and nWall is negative
