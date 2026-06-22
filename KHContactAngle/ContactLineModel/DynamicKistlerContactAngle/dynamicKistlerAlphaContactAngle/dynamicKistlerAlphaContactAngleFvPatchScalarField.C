@@ -29,9 +29,9 @@ License
 #include "fvPatchFieldMapper.H"
 #include "fvPatchFields.H"
 #include "volMesh.H"
-#include "Time.H" // Required for this->db() to return Time object, which is the objectRegistry
+#include "Time.H"
 #include "interfaceProperties.H"
-#include "twoPhaseMixture.H" // Often needed to find phase properties
+#include "twoPhaseMixture.H"
 #include "IOdictionary.H"
 #include "OFstream.H"
 
@@ -48,7 +48,7 @@ const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToDeg =
 const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::convertToRad =
     constant::mathematical::pi/180.0;
 
-const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 120.0;
+const scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::theta0 = 85.5;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -62,8 +62,7 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
     thetaA_(0.0),
     thetaR_(0.0),
-    muWater_(0.0),
-    sigmaName_("undefined")
+    muWater_(0.0)
 {}
 
 dynamicKistlerAlphaContactAngleFvPatchScalarField::
@@ -78,8 +77,7 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, p, iF, mapper),
     thetaA_(acpsf.thetaA_),
     thetaR_(acpsf.thetaR_),
-    muWater_(acpsf.muWater_),
-    sigmaName_(acpsf.sigmaName_)
+    muWater_(acpsf.muWater_)
 {}
 
 
@@ -94,8 +92,7 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
     dynamicAlphaContactAngleFvPatchScalarField(p, iF),
     thetaA_(readScalar(dict.lookup("thetaA"))),
     thetaR_(readScalar(dict.lookup("thetaR"))),
-    muWater_(readScalar(dict.lookup("muWater"))),
-    sigmaName_(dict.lookup("sigmaKistler"))
+    muWater_(readScalar(dict.lookup("muWater")))
 {
     evaluate();
 }
@@ -110,8 +107,7 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
     dynamicAlphaContactAngleFvPatchScalarField(acpsf),
     thetaA_(acpsf.thetaA_),
     thetaR_(acpsf.thetaR_),
-    muWater_(acpsf.muWater_),
-    sigmaName_(acpsf.sigmaName_)
+    muWater_(acpsf.muWater_)
 {}
 
 
@@ -125,12 +121,11 @@ dynamicKistlerAlphaContactAngleFvPatchScalarField
     dynamicAlphaContactAngleFvPatchScalarField(acpsf, iF),
     thetaA_(acpsf.thetaA_),
     thetaR_(acpsf.thetaR_),
-    muWater_(acpsf.muWater_),
-    sigmaName_(acpsf.sigmaName_)
+    muWater_(acpsf.muWater_)
 {}
 
 
-//----------------------------------------------------------- * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+//* * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
 (
@@ -138,92 +133,77 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     const fvsPatchVectorField& nHat
 ) const
 {
-    //eb - Lookup and return the patchField of dynamic viscosity of mixture
-    //     and surface tension
-    if((sigmaName_ != "sigmaKistler"))
+  const scalar sigmap =
+      this->db().lookupObject<IOdictionary>("transportProperties")
+      .get<dimensionedScalar>("sigma").value();
+//--------------------------------------------------------------------------------------------------Access the layers above the boundary layer-----------------------------
+
+
+// Access mesh
+const fvMesh& mesh = patch().boundaryMesh().mesh();
+const labelUList& faceCells = patch().faceCells(); // cells adjacent to boundary
+const vector wallNormalDir(0, 0, 1); // "up" = +Z
+
+// How many layers to skip (1 = first internal cell, 2 = second, etc.)
+const label nLayers = 3;
+
+// Build a list of cell indices N layers into the domain
+labelList targetCells(patch().size());
+forAll(faceCells, pfacei)
+{
+    label cellI = faceCells[pfacei];
+    for (label layer = 0; layer < nLayers; layer++)
     {
-        FatalErrorIn
-        (
-            "dynamicKistlerAlphaContactAngleFvPatchScalarField"
-        )   << " muEffKistler or sigma set inconsitently"
-            << "sigmaKistler = " << sigmaName_ << '.' << nl
-            << "     Set both muEffKistler and sigmaKistler according to the "
-            << "definition of dynamicKistlerAlphaContactAngle"
-            << "\n     on patch " << this->patch().name()
-            << exit(FatalError);
-    }
-
-
-    // * * * v7 to v2412 MIGRATION CHANGE: Field Lookup Update * * *
-    // Old: patch().lookupPatchField<volScalarField, scalar>(muName_);
-    // New: Use the object registry (this->db()) to look up the volField
-    // and extract the corresponding patchField.
-
-    const objectRegistry& obr = this->db();
-
-    const fvPatchField<scalar>& sigmap =
-        obr.lookupObject<volScalarField>(sigmaName_).boundaryField()[this->patch().index()];
-
-//----------------------------------------------------------------------------------------------------Vectors and Fields ----------------------------------------------------
-
-    vectorField nf = patch().nf();
-
-    // Calculate the component of the velocity parallel to the wall
-    vectorField Uwall = Up.patchInternalField(); //- Up; Up.patchInternalField() is the U in the cells adjacent to the bounday.
-    Uwall -= (nf & Uwall)*nf;
-
-    // Find the direction of the interface parallel to the wall
-    vectorField nWall = nHat - (nf & nHat)*nf;
-
-    // Normalise nWall
-    nWall /= (mag(nWall) + SMALL); // SMALL = 1.0e-6; Points into the drop from the interface
-
-    // Calculate Uwall resolved normal to the interface perpendicular to
-    // the wall (substrate)
-    scalarField uwall = nWall & Uwall; // & is the inner product...... faces into the droplet when receding and outwards when advancing
-
-//----------------------------------------------------------------------------------------------------Average uwall over the triple-Line------------------------------------
-
-//  Initialize sums
-    scalar sumUwallArea = 0.0;
-    scalar sumArea = 0.0;
-
-    // Access area and alpha fields
-    const scalarField& magSf = patch().magSf();
-    const scalarField& alpha = *this;
-
-    //Define threshold for "interface" (e.g. 0.01 to 0.99)
-    const scalar alphaMin = 0.001;
-    const scalar alphaMax = 0.999;
-
-    //Accumulate weighted sums over local faces
-    forAll(uwall, pfacei)
-    {
-        if (alpha[pfacei] > alphaMin && alpha[pfacei] < alphaMax)
+        // Find the internal face of cellI pointing away from the wall
+        // by picking the face whose normal best aligns with -nf
+        const cell& c = mesh.cells()[cellI];
+        scalar maxDot = -GREAT;
+        label bestFace = -1;
+        forAll(c, cFacei)
         {
-            sumUwallArea += uwall[pfacei] * magSf[pfacei];
-            sumArea += magSf[pfacei];
-        }
-    }
-
-    //Parallel reduction (sums values across all processors)
-    reduce(sumUwallArea, sumOp<scalar>());
-    reduce(sumArea, sumOp<scalar>());
-
-    //Calculate average
-    scalar uwallAvg = 0.0;
-    if (sumArea > VSMALL)
-    {
-        uwallAvg = sumUwallArea / sumArea;
-        forAll(uwall, pfacei)
-        {
-            if (alpha[pfacei] > alphaMin && alpha[pfacei] < alphaMax)
+            label faceI = c[cFacei];
+            if (mesh.isInternalFace(faceI))
             {
-                uwall[pfacei] = uwallAvg;
+                vector fNorm = mesh.faceAreas()[faceI] / mag(mesh.faceAreas()[faceI]);
+                // nf points outward (into wall), so interior direction is -nf
+                scalar d = fNorm & wallNormalDir;
+                if (d > maxDot)
+                {
+                    maxDot = d;
+                    bestFace = faceI;
+                }
             }
         }
+        // Walk to the neighbour cell across bestFace
+        if (bestFace != -1)
+        {
+            label own = mesh.faceOwner()[bestFace];
+            label nei = mesh.faceNeighbour()[bestFace];
+            cellI = (own == cellI) ? nei : own;
+        }
     }
-//---------------------------------------------------------------------------------------------------- End uwall Averaging Code
+    targetCells[pfacei] = cellI;
+}
+
+//----------------------------Deep wall velocity
+
+vectorField nf = patch().nf();
+const volVectorField& U = mesh.lookupObject<volVectorField>("U");
+
+vectorField UwallDeep(patch().size());
+forAll(targetCells, pfacei)
+{
+    UwallDeep[pfacei] = U[targetCells[pfacei]];
+}
+
+// Remove wall-normal component (same as before)
+UwallDeep -= (nf & UwallDeep) * nf;
+
+// X-component (or swap back to nWall dot product if preferred)
+scalarField uwall = -UwallDeep.component(vector::X);
+
+// * * * * * * * * * * * Kistler Conact Angle Computation * * * * * * * * //
+
     //eb - Calculate local Capillary number
     scalarField Ca = muWater_*mag(uwall)/sigmap;
 
@@ -237,7 +217,7 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     dynamicKistlerAlphaContactAngleFvPatchScalarField::InverseHoffmanFunction
     InvHoffFuncThetaR
     (
-        convertToRad*(180-thetaR_)//calculate the receding contact angl
+        convertToRad*(thetaR_)//calculate the receding contact angl
     );
 
     //eb - Calculate InverseHoffmanFunction for thetaA and thetaR using
@@ -254,10 +234,9 @@ tmp<scalarField> dynamicKistlerAlphaContactAngleFvPatchScalarField::theta
     //     thetaDp is initialized to 90 degrees corresponding to no wall
     //     adhesion
 
-//-------------------------------------------------------------------------------Kistler------------------------------------------------------------------------
-const scalar uwallTol = 5e-3; // or velocity-based
-//const scalar uwallTolR = 1e-6; // Receding condition more agressive to deal with spurious currents along the interface
-//
+//---------------------------------------Kistler--------------
+const scalar uwallTol = 1e-4;
+
     scalarField thetaDp(patch().size(), convertToRad*theta0);
     forAll(uwall, pfacei)
     {
@@ -271,78 +250,36 @@ const scalar uwallTol = 5e-3; // or velocity-based
         else if (uwall[pfacei] > uwallTol)
         {
         // receding
-            // Symmetric Kistler: 180 - f( Ca + f_inv(180 - thetaR) )
-            // As Ca increases, f(...) goes to 180, so thetaDp goes to 0.
-            thetaDp[pfacei] =constant::mathematical::pi - HoffmanFunction( mag(Ca[pfacei]) + InvHoffFuncThetaRroot);
-//            thetaDp[pfacei] = constant::mathematical::pi - thetaGasDyn;
+            thetaDp[pfacei] =HoffmanFunction( mag(Ca[pfacei]) + InvHoffFuncThetaRroot);
         }
         else
           {
         // pinned / equilibrium
             thetaDp[pfacei] = convertToRad*theta0;
         }
-   }
-
-//- -- ------------------------------------------------ DATA EXPORT FOR PYTHON ----------------------
-
-    //const scalarField& alphaWall = *this;
-//
-  //  if (this->db().time().writeTime())
-//    {
-        // Define path: postProcessing/contactAngleData/<patchName>_time.csv
-    //    fileName outputDir = this->db().time().path()/"postProcessing"/"contactAngleData";
-  //      mkDir(outputDir);
-//
-      //  fileName logName = outputDir/(this->patch().name() + "_" + this->db().time().timeName() + ".csv");
-//
-	// Declare the pointer locally
-    //    autoPtr<OFstream> OF_logFilePtr;
-  //      OF_logFilePtr.reset(new OFstream(logName));
-//
-        // Write CSV Header
-  //      *OF_logFilePtr << "faceID,uwall,Ca,thetaDeg,alpha" << endl;
-//
-    //    forAll(uwall, facei)
-  //      {
-//            *OF_logFilePtr << facei << ","
-            //               << uwall[facei] << ","
-          //                 << Ca[facei] << ","
-        //                   << (thetaDp[facei] * convertToDeg) << ","
-      //                     << alphaWall[facei] << endl;
-    //    }
-  //  }
-//
+    }
+    
     return convertToDeg*thetaDp;
 }
-//------------------------------------------------------------------------------------Kistler and Data Export End-------------------------
-
-
 //---------------------------------------------------------------------------------Define Hoffman--------------------------------------
+
 scalar dynamicKistlerAlphaContactAngleFvPatchScalarField::HoffmanFunction
 (
     const scalar& x
 ) const
 {
-    // Use mag(x) to prevent domain errors with pow(x, 0.99) if x is slightly negative
-    //if (x < 0 ) x = 0;
-
     // Original Hoffman formula: 5.16 * (x / (1 + 1.31 * x^0.99))^0.706
     scalar inner = 5.16 * pow(x / (1.0 + 1.31 * pow(mag(x), 0.99)), 0.706);
     scalar tanh_val = tanh(inner);
 
-    // Kistler model maps the contact angle as: cos(theta) = 1 - 2*tanh(f)
+    //cos(theta) = 1 - 2*tanh(f)
     scalar arg = 1.0 - 2.0 * tanh_val;
 
-    // Explicitly clamp for acos stability to prevent NaNs from precision drift
-    if (arg > 1.0) arg = 1.0;
-    if (arg < -1.0) arg = -1.0;
+//    if (arg > 1.0) arg = 1.0;
+//    if (arg < -1.0) arg = -1.0;
 
     return acos(arg);
 }
-
-// * * * v7 to v2412 MIGRATION CHANGE: Full write function restored * * *
-// The original provided code had an incomplete write function active.
-// This version is complete and writes all custom parameters.
 
 void dynamicKistlerAlphaContactAngleFvPatchScalarField::write(Ostream& os) const
 {
@@ -355,13 +292,10 @@ void dynamicKistlerAlphaContactAngleFvPatchScalarField::write(Ostream& os) const
 
     // Write the dictionary keys for the referenced fields
     os.writeKeyword("muWater") << muWater_ << token::END_STATEMENT << nl;
-    os.writeKeyword("sigmaKistler") << sigmaName_ << token::END_STATEMENT << nl;
 
     // Write the actual field value stored in this patch field object
     writeEntry("value", os);
 }
-
-// * * * END MIGRATION CHANGE * * *
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

@@ -68,10 +68,6 @@ class dynamicKistlerAlphaContactAngleFvPatchScalarField
 
         //eb Name of the dynamic viscosity field
         scalar muWater_;
-
-        //eb Name of the surface tension
-        word sigmaName_;
-
 public:
 
     //eb - Function object class, inverse of the Hoffman function
