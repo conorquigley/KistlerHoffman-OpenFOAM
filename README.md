@@ -202,7 +202,7 @@ Key findings:
 
 If you use this boundary condition in published work, please cite the following:
 
-[This work was build from the linked githib repositry.]((https://github.com/franciscotovarmit/interKistlerFoam)) The work done there is foundational to anything that has been achieved by these updates.
+[This work was build from the linked githib repositry.](https://github.com/franciscotovarmit/interKistlerFoam) The work done there is foundational to anything that has been achieved by these updates.
 
 
 
